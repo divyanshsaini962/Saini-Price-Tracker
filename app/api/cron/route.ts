@@ -1,41 +1,36 @@
 import { NextResponse } from "next/server";
+
 import { getLowestPrice, getHighestPrice, getAveragePrice, getEmailNotifType } from "@/lib/utils";
 import { connectToDB } from "@/lib/mongoose";
 import Product from "@/lib/models/product.model";
 import { scrapeAmazonProduct } from "@/lib/scraper";
 import { generateEmailBody, sendEmail } from "@/lib/nodemailer";
 
-export const maxDuration = 10; // This function can run for a maximum of 300 seconds
+export const maxDuration = 300; // This function can run for a maximum of 300 seconds
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
-    // Connect to the database
-    await connectToDB();
+    connectToDB();
 
-    // Fetch all products from the database
     const products = await Product.find({});
 
-    if (!products || products.length === 0) {
-      throw new Error("No products fetched");
-    }
+    if (!products) throw new Error("No product fetched");
 
-    // Process each product asynchronously
-    const updatedProducts = await Promise.all(products.map(async (currentProduct) => {
-      try {
-        // Scrape product data from Amazon
+    // ======================== 1 SCRAPE LATEST PRODUCT DETAILS & UPDATE DB
+    const updatedProducts = await Promise.all(
+      products.map(async (currentProduct) => {
+        // Scrape product
         const scrapedProduct = await scrapeAmazonProduct(currentProduct.url);
 
-        if (!scrapedProduct) {
-          // If scraping fails, return without updating the product
-          return null;
-        }
+        if (!scrapedProduct) return;
 
-        // Update price history and other details
         const updatedPriceHistory = [
           ...currentProduct.priceHistory,
-          { price: scrapedProduct.currentPrice },
+          {
+            price: scrapedProduct.currentPrice,
+          },
         ];
 
         const product = {
@@ -46,44 +41,42 @@ export async function GET(request: Request) {
           averagePrice: getAveragePrice(updatedPriceHistory),
         };
 
-        // Update product in the database
+        // Update Products in DB
         const updatedProduct = await Product.findOneAndUpdate(
-          { url: product.url },
-          product,
-          { new: true } // Return the updated document
+          {
+            url: product.url,
+          },
+          product
         );
 
-        // Check if email notification should be sent
-        const emailNotifType = getEmailNotifType(scrapedProduct, currentProduct);
+        // ======================== 2 CHECK EACH PRODUCT'S STATUS & SEND EMAIL ACCORDINGLY
+        const emailNotifType = getEmailNotifType(
+          scrapedProduct,
+          currentProduct
+        );
+
         if (emailNotifType && updatedProduct.users.length > 0) {
           const productInfo = {
             title: updatedProduct.title,
             url: updatedProduct.url,
           };
-          // Generate email content
+          // Construct emailContent
           const emailContent = await generateEmailBody(productInfo, emailNotifType);
-          // Get user emails
+          // Get array of user emails
           const userEmails = updatedProduct.users.map((user: any) => user.email);
           // Send email notification
           await sendEmail(emailContent, userEmails);
         }
 
         return updatedProduct;
-      } catch (error) {
-        console.error(`Error processing product: ${error}`);
-        return null; // Return null to maintain array structure
-      }
-    }));
-
-    // Filter out null values (failed product updates)
-    const filteredProducts = updatedProducts.filter(product => product !== null);
+      })
+    );
 
     return NextResponse.json({
-      message: "Products updated successfully",
-      data: filteredProducts,
+      message: "Ok",
+      data: updatedProducts,
     });
-  } catch (error) {
-    console.error(`Failed to update products: ${error}`);
-    throw new Error("Failed to update products");
+  } catch (error: any) {
+    throw new Error(`Failed to get all products: ${error.message}`);
   }
 }
