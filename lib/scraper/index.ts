@@ -31,17 +31,21 @@ export async function scrapeAmazonProduct(url: string) {
     // Extract the product title
     const title = $('#productTitle').text().trim();
     const currentPrice = extractPrice(
-      $('.priceToPay span.a-price-whole'),
-      $('.a.size.base.a-color-price'),
-      $('.a-button-selected .a-color-base'),
+      $('#price_inside_buybox'), // Price inside buy box
+      $('#priceblock_ourprice'), // Our price
+      $('#priceblock_dealprice'), // Deal price
+      $('.a-price .a-offscreen'), // Price within a-price class
+      $('.a-color-price') // Color-based price
     );
 
     const originalPrice = extractPrice(
-      $('#priceblock_ourprice'),
-      $('.a-price.a-text-price span.a-offscreen'),
-      $('#listPrice'),
-      $('#priceblock_dealprice'),
-      $('.a-size-base.a-color-price')
+      $('#priceblock_ourprice'), // Our price (for non-sale items)
+      $('#priceblock_dealprice_savings'), // Original price (for items with deals)
+      $('.priceBlockStrikePriceString'), // Original price (alternative selector)
+      $('.a-price .a-text-price span.a-offscreen'), // Text price within a-price class
+      $('#listPrice'), // List price (for sale items)
+      $('.a-size-base.a-color-price'), // Color-based price
+      $('[class*="priceBlock"]') // Generic selector to capture other price elements
     );
 
     const outOfStock = $('#availability span').text().trim().toLowerCase() === 'currently unavailable';
